@@ -43,6 +43,15 @@
 </div>
 
 <script>
+// Конфигурация адресов сервисов
+const CONFIG = {
+    API_URL: window.location.hostname.includes('github.io') 
+        ? 'https://PYTHON' // GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG
+        : 'http://localhost:8000',
+    GATEWAY_URL: window.location.hostname.includes('github.io')
+        ? 'https://GO'
+        : 'http://localhost:8080'
+};
 let state = { token: null, role: null, dealId: null, revision: 0, fields: {}, messages: {} };
 let sse, ws;
 let inputTimers = {};
