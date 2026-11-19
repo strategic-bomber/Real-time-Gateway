@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Сделка - Демо</title>
+    <style>
+        body { font-family: sans-serif; display: flex; height: 100vh; margin: 0; }
+        #login-screen { width: 100%; display: flex; justify-content: center; align-items: center; flex-direction: column; }
+        #deal-screen { display: none; width: 100%; display: flex; }
+        #form-panel { flex: 1; padding: 20px; border-right: 1px solid #ccc; overflow-y: auto; }
+        #chat-panel { flex: 1; padding: 20px; display: flex; flex-direction: column; }
+        .field-group { margin-bottom: 15px; }
+        .status-approved { border-left: 4px solid green; padding-left: 8px; }
+        .status-correction { border-left: 4px solid red; padding-left: 8px; background: #fff0f0; }
+        .chat-messages { flex: 1; overflow-y: auto; border: 1px solid #ddd; padding: 10px; margin-bottom: 10px; }
+        .msg-system { color: #d32f2f; font-style: italic; }
+    </style>
+</head>
+<body>
+
+<!-- Login Screen -->
+<div id="login-screen">
+    <h2>Вход в сделку</h2>
+    <input type="text" id="username" placeholder="Имя (client1 / manager1)" value="client1"><br><br>
+    <input type="text" id="dealId" placeholder="ID сделки" value="deal-42"><br><br>
+    <button onclick="login()">Войти</button>
+</div>
+
+<!-- Deal Screen -->
+<div id="deal-screen">
+    <div id="form-panel">
+        <h3>Данные сделки <span id="deal-status"></span></h3>
+        <div id="fields-container"></div>
+        <button id="btn-complete" onclick="completeBuyout()" style="display:none;">Завершить выкуп</button>
+        <button id="btn-stock" onclick="acceptToStock()" style="display:none;">Принять на склад</button>
+    </div>
+    <div id="chat-panel">
+        <h3>Чат</h3>
+        <div id="chat-messages" class="chat-messages"></div>
+        <input type="text" id="msg-input" placeholder="Сообщение...">
+        <button onclick="sendMessage()">Отправить</button>
+    </div>
+</div>
+
+<script>
+let state = { token: null, role: null, dealId: null, revision: 0, fields: {}, messages: {} };
+let sse, ws;
+let inputTimers = {};
+
+async function login() {
+    const username = document.getElementById('username').value;
+    state.dealId = document.getElementById('dealId').value;
+    
+    const res = await fetch('/api/demo/sessions', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ username, deal_id: state.dealId })
+    });
+    if (!res.ok) return alert('Ошибка входа');
+    
+    const data = await res.json();
+    state.token = data.token;
+    state.role = data.role;
+    
+    document.getElementById('login-screen').style.display = 'none';
+    document.getElementById('deal-screen').style.display = 'flex';
+    
+    await loadSnapshot();
+    connectSSE();
+    connectWS();
+}
+
+async function loadSnapshot() {
+    const res = await fetch(`/api/deals/${state.dealId}`, { headers: { 'Authorization': `Bearer ${state.token}` } });
+    const data = await res.json();
+    state.revision = data.revision;
+    state.fields = data.fields;
+    renderFields();
+    renderMessages(data.messages || []);
+    updateStatusUI();
+}
+
+function renderFields() {
+    const container = document.getElementById('fields-container');
+    container.innerHTML = '';
+    for (const [name, field] of Object.entries(state.fields)) {
+        const div = document.createElement('div');
+        div.className = `field-group status-${field.status}`;
+        div.id = `field-${name}`;
+        
+        const isClient = state.role === 'client';
+        const isLocked = field.status === 'approved' || state.role === 'manager';
+        
+        div.innerHTML = `
+            <label><b>${name}</b> (v${field.version}) - ${field.status}</label><br>
+            <input type="text" value="${field.value || ''}" 
+                   ${isLocked ? 'disabled' : ''} 
+                   oninput="debounceUpdate('${name}', this.value)">
+            ${state.role === 'manager' && field.status === 'pending' ? `
+                <button onclick="reviewField('${name}', 'approve')">Подтвердить</button>
+                <button onclick="reviewField('${name}', 'request_correction')">Исправить</button>
+            ` : ''}
+        `;
+        container.appendChild(div);
+    }
+}
+
+function debounceUpdate(fieldName, value) {
+    clearTimeout(inputTimers[fieldName]);
+    inputTimers[fieldName] = setTimeout(() => {
+        fetch(`/api/deals/${state.dealId}/fields/${fieldName}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${state.token}` },
+            body: JSON.stringify({ value, expected_version: state.fields[fieldName].version })
+        }).then(res => {
+            if (res.status === 409) alert('Конфликт версий! Перечитываю...');
+            if (res.status === 409) loadSnapshot();
+        });
+    }, 3000); // 3 seconds pause as per architecture
+}
+
+async function reviewField(fieldName, decision) {
+    await fetch(`/api/deals/${state.dealId}/fields/${fieldName}/review`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${state.token}` },
+        body: JSON.stringify({ decision, expected_version: state.fields[fieldName].version })
+    });
+}
+
+// --- SSE (Form Updates) ---
+function connectSSE() {
+    sse = new EventSource(`/sse?room=${state.dealId}&token=${state.token}`);
+    sse.onmessage = (e) => handleEvent(JSON.parse(e.data), 'sse');
+}
+
+// --- WebSocket (Chat) ---
+async function connectWS() {
+    // In real app, fetch ticket first. For skeleton, using token directly in URL for simplicity or mock ticket
+    ws = new WebSocket(`ws://localhost:8080/ws?ticket=${state.token}`); 
+    ws.onmessage = (e) => handleEvent(JSON.parse(e.data), 'ws');
+}
+
+function handleEvent(event, source) {
+    if (event.payload.revision <= state.revision && event.payload.kind !== 'message') return; // Ignore old events
+    
+    if (event.event_type === 'update') {
+        if (event.payload.kind === 'field.value' || event.payload.kind === 'field.review') {
+            state.fields[event.payload.dealFieldName] = {
+                value: event.payload.value || state.fields[event.payload.dealFieldName]?.value,
+                status: event.payload.status,
+                version: event.payload.fieldVersion
+            };
+            state.revision = event.payload.revision;
+            renderFields();
+            updateStatusUI();
+        } else if (event.payload.kind === 'deal.status') {
+            state.revision = event.payload.revision;
+            updateStatusUI();
+        }
+    } else if (event.event_type === 'message') {
+        addMessageToUI(event.payload);
+        state.revision = event.payload.revision;
+    }
+}
+
+function updateStatusUI() {
+    document.getElementById('deal-status').innerText = `(${state.revision})`;
+    const allApproved = Object.values(state.fields).every(f => f.status === 'approved');
+    
+    document.getElementById('btn-complete').style.display = (state.role === 'client' && allApproved) ? 'block' : 'none';
+    document.getElementById('btn-stock').style.display = (state.role === 'manager') ? 'block' : 'none';
+}
+
+function addMessageToUI(msg) {
+    const div = document.createElement('div');
+    div.className = msg.senderRole === 'system' ? 'msg-system' : '';
+    div.innerText = `[${msg.senderRole}]: ${msg.text}`;
+    document.getElementById('chat-messages').appendChild(div);
+}
+
+async function sendMessage() {
+    const text = document.getElementById('msg-input').value;
+    const formData = new FormData();
+    formData.append('text', text);
+    
+    await fetch(`/api/deals/${state.dealId}/messages`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${state.token}` },
+        body: formData
+    });
+    document.getElementById('msg-input').value = '';
+}
+
+async function completeBuyout() {
+    await fetch(`/api/deals/${state.dealId}/complete-buyout`, { method: 'POST', headers: { 'Authorization': `Bearer ${state.token}` } });
+}
+async function acceptToStock() {
+    await fetch(`/api/deals/${state.dealId}/accept-to-stock`, { method: 'POST', headers: { 'Authorization': `Bearer ${state.token}` } });
+}
+</script>
+</body>
+</html>

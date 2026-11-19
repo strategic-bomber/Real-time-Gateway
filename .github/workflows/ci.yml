@@ -1,0 +1,126 @@
+# act -j python-tests
+
+# or maybe 
+# act -j python-tests -P ubuntu-latest=catthehacker/ubuntu:act-latest
+
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  python-tests:
+    name: Python Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./python_api
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-test.txt
+      
+      - name: Run tests with coverage
+        run: |
+          pip install pytest-cov
+          pytest tests/ -v --cov=. --cov-report=xml --cov-report=term
+      
+      - name: Upload coverage
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./python_api/coverage.xml
+          flags: python
+
+  go-tests:
+    name: Go Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./go_gateway
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+      
+      - name: Download dependencies
+        run: go mod download
+      
+      - name: Run tests with coverage
+        run: go test ./... -v -race -coverprofile=coverage.out
+      
+      - name: Upload coverage
+        uses: actions/upload-artifact@v3
+        with:
+          name: go-coverage
+          path: go_gateway/coverage.out
+
+  build-check:
+    name: Build Check
+    runs-on: ubuntu-latest
+    needs: [python-tests, go-tests]
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Build Go
+        working-directory: ./go_gateway
+        run: go build -v ./...
+      
+      - name: Check Python imports
+        working-directory: ./python_api
+        run: |
+          pip install -r requirements.txt
+          python -c "from main import app; print('OK')"
+
+
+# micro is not enough
+# PS C:\Users\rewhe\Desktop\Real-time-Gateway> act -j python-tests
+# time="2026-11-19T07:48:45+03:00" level=info msg="Using docker host 'npipe:////./pipe/docker_engine', and daemon socket 'npipe:////./pipe/docker_engine'"
+# ? Please choose the default image you want to use with act:                                                                     
+#   - Large size image: ca. 17GB download + 53.1GB storage, you will need 75GB of free disk space, snapshots of GitHub Hosted Runners without snap and pulled docker images                                                                                       
+#   - Medium size image: ~500MB, includes only necessary tools to bootstrap actions and aims to be compatible with most actions   
+#   - Micro size image: <200MB, contains only NodeJS required to bootstrap actions, doesn't work with all actions                 
+                                                                                                                                
+# Default image and other options can be changed manually in C:\Users\rewhe\AppData\Local\act\actrc (please refer to https://nektosact.com/usage/index.html?highlight=configur#configuration-file for additional information about file structure) Micro          
+# [CI/Python API Tests] ? Run Set up job                                                                                         
+# [CI/Python API Tests] ??  Start image=node:16-buster-slim                                                                       
+# [CI/Python API Tests]   ??  docker pull image=node:16-buster-slim platform= username= forcePull=true                            
+# [CI/Python API Tests] using DockerAuthConfig authentication for docker pull                                                     
+# [CI/Python API Tests]   ??  docker create image=node:16-buster-slim platform= entrypoint=["tail" "-f" "/dev/null"] cmd=[] network="host"
+# [CI/Python API Tests]   ??  docker run image=node:16-buster-slim platform= entrypoint=["tail" "-f" "/dev/null"] cmd=[] network="host"
+# [CI/Python API Tests]   ??  docker exec cmd=[node --no-warnings -e console.log(process.execPath)] user= workdir=
+# [CI/Python API Tests]   ?  Success - Set up job
+# [CI/Python API Tests]   ?  git clone 'https://github.com/actions/setup-python' # ref=v5
+# [CI/Python API Tests] ? Run Main actions/checkout@v4
+# [CI/Python API Tests]   ??  docker cp src=C:\Users\rewhe\Desktop\Real-time-Gateway\. dst=/mnt/c/Users/rewhe/Desktop/Real-time-Gateway
+# [CI/Python API Tests]   ?  Success - Main actions/checkout@v4 [353.5517ms]
+# [CI/Python API Tests] ? Run Main Set up Python
+# [CI/Python API Tests]   ??  docker cp src=C:\Users\rewhe\.cache\act/actions-setup-python@v5/ dst=/var/run/act/actions/actions-setup-python@v5/
+# [CI/Python API Tests]   ??  docker exec cmd=[/usr/local/bin/node /var/run/act/actions/actions-setup-python@v5/dist/setup/index.js] user= workdir=
+# [CI/Python API Tests]   ?  ::group::Installed versions
+# | Version 3.10 was not found in the local cache
+# [CI/Python API Tests]   ?  ::error::The version '3.10' with architecture 'x64' was not found for this operating system.%0AThe list of all available versions can be found here: https://raw.githubusercontent.com/actions/python-versions/main/versions-manifest.json
+# [CI/Python API Tests]   ?  Failure - Main Set up Python [6.469497s]
+# [CI/Python API Tests] exitcode '1': failure
+# [CI/Python API Tests] ? Run Complete job
+# [CI/Python API Tests]   ?  Success - Complete job
+# [CI/Python API Tests] ??  Job failed
+# Error: Job 'Python API Tests' failed
