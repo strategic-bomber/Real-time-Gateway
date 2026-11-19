@@ -2,14 +2,15 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from python_api.db import init_db
-from routers import auth, deals, fields, messages
+from python_api.routers import auth, deals, fields
+from python_api.routers import messages
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Код, выполняемый при запуске
+    # ???, ?????? ?? ?????
     init_db()
     yield
-    # Код, выполняемый при завершении (если нужен)
+    # ???, ?????? ?? ???????? (?? ???)
 
 app = FastAPI(title="Deal API", lifespan=lifespan)
 

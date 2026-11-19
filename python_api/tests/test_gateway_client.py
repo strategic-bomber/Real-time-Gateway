@@ -2,7 +2,10 @@ import pytest
 
 import sys
 import os
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))       # .../python_api/tests
+PYTHON_API_DIR = os.path.dirname(CURRENT_DIR)                  # .../python_api
+sys.path.insert(0, PYTHON_API_DIR)
 
 from unittest.mock import patch, AsyncMock
 from python_api.gw_client import publish_event

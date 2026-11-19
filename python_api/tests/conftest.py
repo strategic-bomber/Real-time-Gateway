@@ -2,29 +2,41 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-
 import sys
 import os
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
-import python_api.db as db
-import routers.auth
-import routers.deals
-import routers.fields
-import routers.messages
-from python_api.db import Base, Deal, DealMember, DealField
-from python_api.main import app
+# 1. Точное определение всех уровней папок
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))       # .../python_api/tests
+PYTHON_API_DIR = os.path.dirname(CURRENT_DIR)                  # .../python_api
+PROJECT_ROOT = os.path.dirname(PYTHON_API_DIR)                 # .../Real-time-Gateway (корень)
 
-TEST_DB_URL = "sqlite:///python_api/tests/test_deal_data.db"
+# 2. Добавляем ОБА пути: корень (для routers) и python_api (для db, main)
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+if PYTHON_API_DIR not in sys.path:
+    sys.path.insert(0, PYTHON_API_DIR)
+
+# 3. Теперь импорты сработают корректно
+import db
+import python_api.routers.auth
+import python_api.routers.deals
+import python_api.routers.fields
+import python_api.routers.messages
+from db import Base, Deal, DealMember, DealField
+from main import app
+
+# 4. Абсолютный путь к тестовой БД (остаётся без изменений)
+TEST_DB_URL = f"sqlite:///{os.path.join(PYTHON_API_DIR, 'test_deal_data.db')}"
+
 test_engine = create_engine(TEST_DB_URL, connect_args={"check_same_thread": False})
 TestSession = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
 
-# !!! КЛЮЧЕВОЙ ФИКС: Подменяем SessionLocal ВЕЗДЕ, где он был импортирован
+# 5. Подмена SessionLocal везде
 db.SessionLocal = TestSession
-routers.auth.SessionLocal = TestSession
-routers.deals.SessionLocal = TestSession
-routers.fields.SessionLocal = TestSession
-routers.messages.SessionLocal = TestSession
+python_api.routers.auth.SessionLocal = TestSession
+python_api.routers.deals.SessionLocal = TestSession
+python_api.routers.fields.SessionLocal = TestSession
+python_api.routers.messages.SessionLocal = TestSession
 
 @pytest.fixture(autouse=True)
 def setup_db():

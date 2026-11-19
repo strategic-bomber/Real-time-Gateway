@@ -38,7 +38,8 @@ def test_manager_approve_field(client, seed_deal):
     assert res.status_code == 200
     assert res.json()["status"] == "reviewed"
 
-def test_manager_request_correction_creates_system_message(client, seed_deal):
+def test_manager_request_correction_creates_system_message(client, seed_deal, db_session):
+    from db import Message
     token = get_token(client, "manager1")
     res = client.post(
         "/api/deals/deal-42/fields/paintColour/review",
@@ -46,8 +47,14 @@ def test_manager_request_correction_creates_system_message(client, seed_deal):
         headers={"Authorization": f"Bearer {token}"}
     )
     assert res.status_code == 200
+
+    # Используем db_session из фикстуры, а не создаём новый SessionLocal()
+    msgs = db_session.query(Message).filter_by(deal_id="deal-42", sender_role="system").all()
     
-    db = SessionLocal()
-    msgs = db.query(Message).filter_by(deal_id="deal-42", sender_role="system").all()
-    assert len(msgs) == 1
+    # если сообщений 0, покажем, что вообще есть в таблице
+    if len(msgs) == 0:
+        all_msgs = db_session.query(Message).all()
+        print("\nDEBUG ALL MESSAGES IN DB:", [(m.deal_id, m.sender_role, m.text) for m in all_msgs])
+        
+    assert len(msgs) == 1, f"Ожидали 1 системное сообщение, но нашли {len(msgs)}. См. вывод DEBUG выше."
     assert "Исправьте значение" in msgs[0].text
