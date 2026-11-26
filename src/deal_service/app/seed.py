@@ -37,7 +37,7 @@ def seed_database(db: Session):
             value="2.0",
         ),
         DealField(
-            name="paintColour",
+            name="paintColor",
             value="Синий",
         ),
         DealField(
