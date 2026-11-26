@@ -5,7 +5,13 @@ build/
 dist/
 wheels/
 *.egg-info
+.pytest_cache/
 
 # Virtual environments
-.venv
-.vs
+.venv/
+.vs/
+
+# service
+*.db
+uploads/*
+!uploads/.gitkeep
