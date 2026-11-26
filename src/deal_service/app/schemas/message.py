@@ -13,3 +13,6 @@ class MessageResponse(BaseModel):
     text: str | None
     created_at: datetime
     attachments: list[AttachmentResponse]
+
+class MessageCreate(BaseModel):
+    text: str
